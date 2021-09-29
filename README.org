@@ -1,0 +1,375 @@
+#+title: runart
+
+* What?
+
+I want to produce a large sample of simulated data for ls4gan which
+consists of:
+
+- kinematics :: cosmic muon traversing protodune-sp and radioactive decay activity
+- tracking :: Geant4, producing ionization depositions
+- detsim :: WCT drift, convolution, digitization (with two FRs)
+- signals :: WCT SP including DNNROI
+- topo :: WCT 3D imaging
+
+
+The first two require ~dunetpc~ software.  According to [[https://dune.github.io/computing-training-202105/06-intro-art-larsoft/index.html][Computing
+Training 202105]] under "Examples and current workflows" the likely jobs
+are close to these:
+
+#+begin_example
+ lar -n 1 -c mcc12_gen_protoDune_beam_cosmics_p1GeV.fcl -o gen.root
+ lar -n 1 -c protoDUNE_refactored_g4_stage1.fcl gen.root -o g4_stage1.root
+ lar -n 1 -c protoDUNE_refactored_g4_stage2_sce_datadriven.fcl g4_stage1.root -o g4_stage2.root
+#+end_example
+
+These and all ~dunetpc~ fcl are mirrored under [[file:dunetpc-job/]].
+
+I want produce a single ~.fcl~ that runs WC/LS to output WCT depo files.
+From those, a stand-alone WCT job will do the rest.
+
+* Development
+
+It's really hard to build useful containers for dunetpc/larsoft/art so
+we punt.  For a vain attempt, see [[https://github.com/brettviren/coups][coups]].
+
+** Build container
+
+#+begin_example
+ cat sl7.df | docker build -t sl7plus:000
+ singularity build sl7plus.sif docker-daemon://sl7plus:000
+ SHELL=bash UPS_OVERRIDE='-H Linux64bit+3.10-2.17' singularity exec sl7plus.sif bash
+#+end_example
+
+** UPS/CVMFS environment
+
+In the container, this is the setup:
+
+#+begin_example
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup dunetpc v09_31_00 -q e20:prof
+#+end_example
+
+** Aside, CVMFS dependency for data files
+
+First, start with ~mcc12_gen_protoDune_beam_cosmics.fcl~ but strip out
+the beam ~generator~.  One problem with using (fat, non-CVMFS)
+containers is that data is taken from ~/stash/~.  A side-check:
+
+#+begin_example
+$ strace -o cosmic-depos.strace art -n 1 -c cosmic-depos.fcl -o gen.root
+$ grep cvmfs cosmic-depos.strace |grep /stash/
+stat("/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/p_showers_210034.db", {st_mode=S_IFREG|0644, st_size=31240192, ...}) = 0
+stat("/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/He_showers_310006.db", {st_mode=S_IFREG|0644, st_size=1639424, ...}) = 0
+stat("/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/N_showers_410083.db", {st_mode=S_IFREG|0644, st_size=154624, ...}) = 0
+stat("/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/Mg_showers_510107.db", {st_mode=S_IFREG|0644, st_size=109568, ...}) = 0
+stat("/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/Fe_showers_610120.db", {st_mode=S_IFREG|0644, st_size=59392, ...}) = 0
+#+end_example
+
+Note, these few files are randomly chosen from a much larger set of 390 files under ~/standard/~:
+
+#+begin_example
+❯ du -sh /cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/
+2.3G	/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/Cosmics/CERN/CORSIKA/standard/
+#+end_example
+
+** Combine stages
+
+First, lets get through each in piecemeal
+
+#+begin_example
+ art -n 1 -c cosmic-depos.fcl -o gen.root
+ art -n 1 -c protoDUNE_refactored_g4_stage1.fcl gen.root -o g4_stage1.root
+ art -n 1 -c protoDUNE_refactored_g4_stage2_sce_datadriven.fcl g4_stage1.root -o g4_stage2.root
+#+end_example
+
+The ~cosmic-depos.fcl~ is ~essentially
+mcc12_gen_protoDune_beam_cosmics_p1GeV.fcl~ and will eventually hold
+the latter two as well.
+
+*** Summaries
+
+#+begin_example
+ art -n 1 -c cosmic-depos.fcl -o gen.root
+
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      2.47219       2.47219       2.47219       2.47219          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:EmptyEvent(read)                       0.000199247   0.000199247   0.000199247   0.000199247        0            1     
+simulate:cosmicgenerator:CORSIKAGen             2.44161       2.44161       2.44161       2.44161          0            1     
+simulate:ar39:RadioGen                         0.012238      0.012238      0.012238      0.012238          0            1     
+simulate:ar42:RadioGen                        9.7284e-05    9.7284e-05    9.7284e-05    9.7284e-05         0            1     
+simulate:kr85:RadioGen                        0.00222648    0.00222648    0.00222648    0.00222648         0            1     
+simulate:rn222:RadioGen                       5.1239e-05    5.1239e-05    5.1239e-05    5.1239e-05         0            1     
+[art]:TriggerResults:TriggerResultInserter    4.8768e-05    4.8768e-05    4.8768e-05    4.8768e-05         0            1     
+end_path:out1:RootOutput                      1.1225e-05    1.1225e-05    1.1225e-05    1.1225e-05         0            1     
+end_path:out1:RootOutput(write)                0.0148903     0.0148903     0.0148903     0.0148903         0            1     
+================================================================================================================================
+
+MemReport  ---------- Memory summary [base-10 MB] ------
+MemReport  VmPeak = 983.183 VmHWM = 477.192
+#+end_example
+
+
+#+begin_export
+ art -n 1 -c protoDUNE_refactored_g4_stage1.fcl gen.root -o g4_stage1.root
+
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      19.9149       19.9149       19.9149       19.9149          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:RootInput(read)                        0.00063679    0.00063679    0.00063679    0.00063679         0            1     
+simulate:largeant:larg4Main                     13.1646       13.1646       13.1646       13.1646          0            1     
+[art]:TriggerResults:TriggerResultInserter    3.9511e-05    3.9511e-05    3.9511e-05    3.9511e-05         0            1     
+end_path:out1:RootOutput                       8.127e-06     8.127e-06     8.127e-06     8.127e-06         0            1     
+end_path:out1:RootOutput(write)                 6.74905       6.74905       6.74905       6.74905          0            1     
+================================================================================================================================
+
+MemReport  ---------- Memory summary [base-10 MB] ------
+MemReport  VmPeak = 3678.29 VmHWM = 2973.47
+#+end_export
+
+
+#+begin_example
+ art -n 1 -c protoDUNE_refactored_g4_stage2_sce_datadriven.fcl g4_stage1.root -o g4_stage2.root
+
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      79.8561       79.8561       79.8561       79.8561          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:RootInput(read)                        0.00054773    0.00054773    0.00054773    0.00054773         0            1     
+simulate:rns:RandomNumberSaver                0.000167264   0.000167264   0.000167264   0.000167264        0            1     
+simulate:IonAndScint:IonAndScint                4.32442       4.32442       4.32442       4.32442          0            1     
+simulate:PDFastSim:PDFastSimPVS                 68.5491       68.5491       68.5491       68.5491          0            1     
+[art]:TriggerResults:TriggerResultInserter    3.1261e-05    3.1261e-05    3.1261e-05    3.1261e-05         0            1     
+end_path:out1:RootOutput                       8.384e-06     8.384e-06     8.384e-06     8.384e-06         0            1     
+end_path:out1:RootOutput(write)                 6.98123       6.98123       6.98123       6.98123          0            1     
+================================================================================================================================
+
+MemReport  ---------- Memory summary [base-10 MB] ------
+MemReport  VmPeak = 5249.74 VmHWM = 4484.4
+#+end_example
+
+That last job pauses for a long time on
+
+#+begin_example
+/cvmfs/dune.osgstorage.org/pnfs/fnal.gov/usr/dune/persistent/stash/PhotonPropagation/LibraryData/lib_Protodunev7_merged_avg.root
+#+end_example
+
+*** Prune
+
+We do not need PD, which is good because by far it takes the most
+time.
+
+The last stage adds ~_sce_datadriven.fcl~ which in its entirety is:
+
+#+begin_example
+#include "protoDUNE_refactored_g4_stage2.fcl"
+services.SpaceCharge.EnableSimEfieldSCE: true
+services.SpaceCharge.EnableSimSpatialSCE: true
+services.SpaceCharge.EnableSimulationSCE: true
+#+end_example
+
+I take the base file, adding in only ~IonAndScint~ related.  Let's see:
+
+#+begin_example
+art -n 1 -c cosmic-depos.fcl
+#+end_example
+
+Hmm,
+
+#+begin_example
+storeTrajectories set to true and a non-empty keepGenTrajectories list provided in configuration file, but none of the generators in this list are present in the event! Double check list or don't provide keepGenTrajectories in the configuration to keep all trajectories from all generator labels. This may be expected for generators that have a nonzero probability of producing no particles (e.g. some radiologicals)
+...
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      28.1263       28.1263       28.1263       28.1263          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:EmptyEvent(read)                       0.000265117   0.000265117   0.000265117   0.000265117        0            1     
+simulate:cosmicgenerator:CORSIKAGen             3.24017       3.24017       3.24017       3.24017          0            1     
+simulate:ar39:RadioGen                         0.013707      0.013707      0.013707      0.013707          0            1     
+simulate:ar42:RadioGen                        4.1577e-05    4.1577e-05    4.1577e-05    4.1577e-05         0            1     
+simulate:kr85:RadioGen                        0.00155516    0.00155516    0.00155516    0.00155516         0            1     
+simulate:rn222:RadioGen                       0.000139854   0.000139854   0.000139854   0.000139854        0            1     
+simulate:largeant:larg4Main                     11.6777       11.6777       11.6777       11.6777          0            1     
+simulate:IonAndScint:IonAndScint               0.250342      0.250342      0.250342      0.250342          0            1     
+[art]:TriggerResults:TriggerResultInserter    7.6718e-05    7.6718e-05    7.6718e-05    7.6718e-05         0            1     
+end_path:out1:RootOutput                      2.0106e-05    2.0106e-05    2.0106e-05    2.0106e-05         0            1     
+end_path:out1:RootOutput(write)                 12.5728       12.5728       12.5728       12.5728          0            1     
+================================================================================================================================
+...
+
+MemReport  ---------- Memory summary [base-10 MB] ------
+MemReport  VmPeak = 4869.14 VmHWM = 3900.21
+
+ls -lh cosmicdepos_protoDUNE.root
+-rw-r--r-- 1 bv bv 314M Sep 29 15:54 cosmicdepos_protoDUNE.root
+#+end_example
+
+I don't think we care about storing trajectories for now.
+
+Let's try more events.
+
+#+begin_example
+Singularity> art -n 10 -c cosmic-depos.fcl  -o cosmic-depos-10.root
+
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      23.0598       25.1572       28.1068       24.5905       1.69969        10     
+--------------------------------------------------------------------------------------------------------------------------------
+source:EmptyEvent(read)                       0.00016796     0.0021043     0.0119565    0.000880443   0.00339213       10     
+simulate:cosmicgenerator:CORSIKAGen             1.72508       2.94228       3.26446       3.08662      0.428901        10     
+simulate:ar39:RadioGen                         0.0131232     0.0149029     0.025086      0.0140756    0.00343602       10     
+simulate:ar42:RadioGen                        3.2793e-05    0.000105121   0.00024472    7.89135e-05   6.26411e-05      10     
+simulate:kr85:RadioGen                        0.00154319    0.00194375    0.00211649     0.0019761    0.000151306      10     
+simulate:rn222:RadioGen                        9.787e-05    0.000154422   0.000196209   0.000161957   3.21135e-05      10     
+simulate:largeant:larg4Main                     9.37619       10.1241       11.2347       9.72717       0.70946        10     
+simulate:IonAndScint:IonAndScint               0.217638      0.242117       0.27958      0.237753      0.0181654       10     
+[art]:TriggerResults:TriggerResultInserter    3.4319e-05    5.37734e-05   0.000210219   3.6567e-05    5.21546e-05      10     
+end_path:out1:RootOutput                       7.444e-06    9.1984e-06    2.0695e-05     7.863e-06    3.84565e-06      10     
+end_path:out1:RootOutput(write)                 9.74814       11.1069       12.6444       10.8967       1.04396        10     
+================================================================================================================================
+
+MemReport  ---------- Memory summary [base-10 MB] ------
+MemReport  VmPeak = 5090.14 VmHWM = 4113.87
+
+Singularity> ls -lh cosmic-depos-10.root 
+-rw-r--r-- 1 bv bv 2.8G Sep 29 16:01 cosmic-depos-10.root
+#+end_example
+
+
+
+*** Purge
+
+Next we need to see wtf is actually in that ROOT file.
+
+#+begin_example
+Begin processing the 1st record. run: 1 subRun: 0 event: 1 at 29-Sep-2021 16:06:37 EDT
+PRINCIPAL TYPE: Event
+PROCESS NAME | MODULE LABEL... | PRODUCT INSTANCE NAME.......................... | DATA PRODUCT TYPE.................................................... | ...SIZE
+CosmicDepos. | largeant....... | LArG4DetectorServicevolAuxDetSensitiveCRTPaddle | std::vector<sim::AuxDetHit>.......................................... | ....429
+CosmicDepos. | largeant....... | ............................................... | std::vector<simb::MCParticle>........................................ | .527751
+CosmicDepos. | ar39........... | ............................................... | std::vector<simb::MCTruth>........................................... | ......1
+CosmicDepos. | kr85........... | ............................................... | std::vector<simb::MCTruth>........................................... | ......1
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActiveOuter.......... | std::vector<sim::SimEnergyDeposit>................................... | ...6398
+CosmicDepos. | ar42........... | ............................................... | std::vector<simb::MCTruth>........................................... | ......1
+CosmicDepos. | IonAndScint.... | priorSCE....................................... | std::vector<sim::SimEnergyDeposit>................................... | 1273843
+CosmicDepos. | rn222.......... | ............................................... | std::vector<simb::MCTruth>........................................... | ......1
+CosmicDepos. | TriggerResults. | ............................................... | art::TriggerResults.................................................. | ......1
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActive............... | std::vector<sim::SimEnergyDeposit>................................... | 1267445
+CosmicDepos. | largeant....... | ............................................... | art::Assns<simb::MCTruth,simb::MCParticle,sim::GeneratedParticleInfo> | .527751
+CosmicDepos. | IonAndScint.... | ............................................... | std::vector<sim::SimEnergyDeposit>................................... | 1273843
+CosmicDepos. | cosmicgenerator | ............................................... | std::vector<simb::MCTruth>........................................... | ......1
+#+end_example
+
+And, our old friend, howbig, from Daya Bay.  Looks like LS's tree
+names gives an answer of "too big"....
+
+#+begin_example
+cosmic-depos-10.root
+             EventHistory: raw =          755     0.00 GiB   0.00%  comp =          209     0.00 GiB   0.00%  entries =           10
+             EventHistory: raw =          755     0.00 GiB          comp =          209     0.00 GiB          entries =           10
+            EventMetaData: raw =         6764     0.00 GiB   0.00%  comp =          479     0.00 GiB   0.00%  entries =           10
+     EventBranchEntryInfo: raw =         6764     0.00 GiB          comp =          479     0.00 GiB          entries =           10
+                   Events: raw =   6705919356     6.71 GiB 100.00%  comp =   2985701395     2.99 GiB 100.00%  entries =           10
+           EventAuxiliary: raw =          621     0.00 GiB          comp =          291     0.00 GiB          entries =           10
+sim::AuxDetHits_largeant_LArG4DetectorServicevolAuxDetSensitiveCRTPaddle_CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCParticles_largeant__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCTruths_ar39__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCTruths_kr85__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+sim::SimEnergyDeposits_largeant_LArG4DetectorServicevolTPCActiveOuter_CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCTruths_ar42__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+sim::SimEnergyDeposits_IonAndScint_priorSCE_CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCTruths_rn222__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+art::TriggerResults_TriggerResults__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+sim::SimEnergyDeposits_largeant_LArG4DetectorServicevolTPCActive_CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCParticlesimb::MCTruthsim::GeneratedParticleInfoart::Assns_largeant__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+sim::SimEnergyDeposits_IonAndScint__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+simb::MCTruths_cosmicgenerator__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =           10
+                FileIndex: raw =          591     0.00 GiB   0.00%  comp =          227     0.00 GiB   0.00%  entries =           12
+                  Element: raw =          591     0.00 GiB          comp =          227     0.00 GiB          entries =           12
+                 MetaData: raw =         6630     0.00 GiB   0.00%  comp =         1958     0.00 GiB   0.00%  entries =            1
+        FileFormatVersion: raw =          120     0.00 GiB          comp =          120     0.00 GiB          entries =            1
+        ProcessHistoryMap: raw =          232     0.00 GiB          comp =          232     0.00 GiB          entries =            1
+          ProductRegistry: raw =         5682     0.00 GiB          comp =         1344     0.00 GiB          entries =            1
+      ProductDependencies: raw =          596     0.00 GiB          comp =          262     0.00 GiB          entries =            1
+                Parentage: raw =          368     0.00 GiB   0.00%  comp =          343     0.00 GiB   0.00%  entries =            3
+                     Hash: raw =          165     0.00 GiB          comp =          165     0.00 GiB          entries =            3
+              Description: raw =          203     0.00 GiB          comp =          178     0.00 GiB          entries =            3
+          ResultsMetaData: raw =          124     0.00 GiB   0.00%  comp =          124     0.00 GiB   0.00%  entries =            1
+   ResultsBranchEntryInfo: raw =          124     0.00 GiB          comp =          124     0.00 GiB          entries =            1
+              ResultsTree: raw =          143     0.00 GiB   0.00%  comp =          143     0.00 GiB   0.00%  entries =            1
+         ResultsAuxiliary: raw =          143     0.00 GiB          comp =          143     0.00 GiB          entries =            1
+              RunMetaData: raw =          416     0.00 GiB   0.00%  comp =          213     0.00 GiB   0.00%  entries =            1
+       RunBranchEntryInfo: raw =          416     0.00 GiB          comp =          213     0.00 GiB          entries =            1
+                     Runs: raw =         3096     0.00 GiB   0.00%  comp =         3054     0.00 GiB   0.00%  entries =            1
+             RunAuxiliary: raw =          174     0.00 GiB          comp =          156     0.00 GiB          entries =            1
+sumdata::GeometryConfigurationInfo_GeometryConfigurationWriter__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+sumdata::RunData_kr85__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+sumdata::RunData_ar39__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+sumdata::RunData_cosmicgenerator__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+sumdata::RunData_rn222__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+sumdata::RunData_ar42__CosmicDepos.: raw =            0          0 B          comp =            0          0 B          entries =            1
+           SubRunMetaData: raw =          122     0.00 GiB   0.00%  comp =          122     0.00 GiB   0.00%  entries =            1
+    SubRunBranchEntryInfo: raw =          122     0.00 GiB          comp =          122     0.00 GiB          entries =            1
+                  SubRuns: raw =          178     0.00 GiB   0.00%  comp =          163     0.00 GiB   0.00%  entries =            1
+          SubRunAuxiliary: raw =          178     0.00 GiB          comp =          163     0.00 GiB          entries =            1
+                    Total: raw =   6705938543     6.71 GiB 100.00%  comp =   2985708430     2.99 GiB 100.00%  entries =           52
+#+end_example
+
+The art object structure in ROOT is as insane as that of UPS (at least
+there is consistency).  The obvious branches are zero size???
+
+*** Drop data
+
+#+begin_example
+art -n 1 -c cosmic-depos.fcl  -o cosmic-depos-1.root
+
+ls -lh cosmic-depos-1.root 
+-rw-r--r-- 1 bv bv 82K Sep 29 16:30 cosmic-depos-1.root
+
+art -c eventdump.fcl cosmic-depos-1.root
+
+PROCESS NAME | MODULE LABEL... | PRODUCT INSTANCE NAME................ | DATA PRODUCT TYPE................. | ...SIZE
+CosmicDepos. | ar39........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | kr85........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActiveOuter | std::vector<sim::SimEnergyDeposit> | ......?
+CosmicDepos. | ar42........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | IonAndScint.... | priorSCE............................. | std::vector<sim::SimEnergyDeposit> | 1830866
+CosmicDepos. | rn222.......... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActive..... | std::vector<sim::SimEnergyDeposit> | ......?
+CosmicDepos. | IonAndScint.... | ..................................... | std::vector<sim::SimEnergyDeposit> | 1830866
+CosmicDepos. | cosmicgenerator | ..................................... | std::vector<simb::MCTruth>........ | ......?
+#+end_example
+
+A little more
+
+#+begin_example
+Singularity> ls -lh cosmic-depos-1.root 
+-rw-r--r-- 1 bv bv 78M Sep 29 16:39 cosmic-depos-1.root
+PROCESS NAME | MODULE LABEL... | PRODUCT INSTANCE NAME................ | DATA PRODUCT TYPE................. | ...SIZE
+CosmicDepos. | ar39........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | kr85........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActiveOuter | std::vector<sim::SimEnergyDeposit> | ......?
+CosmicDepos. | ar42........... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | rn222.......... | ..................................... | std::vector<simb::MCTruth>........ | ......?
+CosmicDepos. | largeant....... | LArG4DetectorServicevolTPCActive..... | std::vector<sim::SimEnergyDeposit> | ......?
+CosmicDepos. | IonAndScint.... | ..................................... | std::vector<sim::SimEnergyDeposit> | 1415535
+CosmicDepos. | cosmicgenerator | ..................................... | std::vector<simb::MCTruth>........ | ......?
+#+end_example
+
+That's with
+
+#+begin_src fcl
+   outputCommands: [ "drop *", "keep sim::SimEnergyDeposits_IonAndScint__*"]
+#+end_src
+
+
+
+** A WCT job to dump out depos
+
