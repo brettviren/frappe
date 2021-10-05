@@ -3,3 +3,7 @@
 *~
 *.db
 *.sif
+.npy
+*.npy
+*.tar.bz2
+*.gz

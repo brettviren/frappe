@@ -1,0 +1,15 @@
+BEGIN_PROLOG
+wcls_dump_volts:
+{
+   module_type: WireCellToolkit
+   wcls_main: {
+      tool_type: WCLS
+      apps: ["TbbFlow"]
+      plugins: ["WireCellGen", "WireCellSio", "WireCellPgraph", "WireCellTbb", "WireCellLarsoft"]
+      configs: ["wcls-sim-adc.jsonnet"]
+      inputers: ["wclsSimDepoSource"]
+      logsinks: ["stdout"]
+      loglevels: ["debug"]
+   }
+}
+END_PROLOG

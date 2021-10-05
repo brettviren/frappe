@@ -25,12 +25,19 @@ are close to these:
 These and all ~dunetpc~ fcl are mirrored under [[file:dunetpc-job/]].
 
 I want produce a single ~.fcl~ that runs WC/LS to output WCT depo files.
-From those, a stand-alone WCT job will do the rest.
+That will likely require building latest WCT and overriding the one
+provided by UPS.
+
+From those, a stand-alone WCT job will do the rest.  This will include
+DNNROI either integrated as a WCT component for via ZIO.
 
 * Development
 
-It's really hard to build useful containers for dunetpc/larsoft/art so
-we punt.  For a vain attempt, see [[https://github.com/brettviren/coups][coups]].
+It's really hard to build useful full containers for UPS ecosystem
+without having them rely on CVMFS. For an attempt, ultimately in vain,
+see [[https://github.com/brettviren/coups][coups]].  Instead, we use a minimal container to provide base SL7
+plus extra OS packages and a layer to provide anything needed on top
+of UPS ecosystem, which is drawn from CVMFS.
 
 ** Build container
 
@@ -40,7 +47,7 @@ we punt.  For a vain attempt, see [[https://github.com/brettviren/coups][coups]]
  SHELL=bash UPS_OVERRIDE='-H Linux64bit+3.10-2.17' singularity exec sl7plus.sif bash
 #+end_example
 
-** UPS/CVMFS environment
+** UPS/CVMFS runtime environment
 
 In the container, this is the setup:
 
@@ -371,5 +378,170 @@ That's with
 
 
 
-** A WCT job to dump out depos
+** A WC/LS job to run kine+tracking and dump out depos
+
+*** Start container
+
+#+begin_example
+SHELL=bash UPS_OVERRIDE='-H Linux64bit+3.10-2.17' singularity exec --bind /cvmfs sl7plus.sif bash -l
+#+end_example
+
+*** Setup
+
+Source this
+
+#+begin_src bash
+#!/bin/bash
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup  dunetpc v09_31_00 -q e20:prof
+mycfg=$(dirname $BASH_SOURCE)/cfg
+WIRECELL_PATH=$WIRECELL_FQ_DIR/share/wirecell:$mycfg
+FHICL_FILE_PATH=$FHICL_FILE_PATH:$mycfg
+#+end_src
+
+*** Run
+
+#+begin_example
+art --trace -n 1 -c cfg/cosmic_depos.fcl 2>&1 | grep -v '^Depo:' 
+#+end_example
+
+We grep out the ~Depo:~ because we capped off the depo saver (a filter)
+with a stupidly verbose ~DumpDepos~.  Better use a ~DepoFileSink~, but
+that does not yet exist.
+
+#+begin_example
+ls -lh wcls-dump-depos.npz 
+-rw-rw-r-- 1 bv bv 110M Oct  4 12:27 wcls-dump-depos.npz
+
+gzip wcls-dump-depos.npz
+
+ls -lh wcls-dump-depos.npz.gz 
+-rw-rw-r-- 1 bv bv 32M Oct  4 12:27 wcls-dump-depos.npz.gz
+#+end_example
+
+The time usage for the dump is substantial, almost 3x what Geant4
+uses:
+
+#+begin_example
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      40.9051       40.9051       40.9051       40.9051          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:EmptyEvent(read)                       0.000232168   0.000232168   0.000232168   0.000232168        0            1     
+simulate:cosmicgenerator:CORSIKAGen             3.10474       3.10474       3.10474       3.10474          0            1     
+simulate:ar39:RadioGen                         0.0128975     0.0128975     0.0128975     0.0128975         0            1     
+simulate:ar42:RadioGen                        3.3241e-05    3.3241e-05    3.3241e-05    3.3241e-05         0            1     
+simulate:kr85:RadioGen                        0.00150381    0.00150381    0.00150381    0.00150381         0            1     
+simulate:rn222:RadioGen                       0.000151141   0.000151141   0.000151141   0.000151141        0            1     
+simulate:largeant:larg4Main                     9.56759       9.56759       9.56759       9.56759          0            1     
+simulate:IonAndScint:IonAndScint                0.32786       0.32786       0.32786       0.32786          0            1     
+simulate:DumpDepos:WireCellToolkit               27.31         27.31         27.31         27.31           0            1     
+[art]:TriggerResults:TriggerResultInserter    8.0066e-05    8.0066e-05    8.0066e-05    8.0066e-05         0            1     
+================================================================================================================================
+#+end_example
+
+** A WC/LS job to add noise-free ADC
+
+Perhaps running WCT sim and saving sparse waveforms will actually be
+faster and smaller.
+
+*** Setup
+
+Here we need WCT 0.17 and dunetpc is not yet rebuilt for it.  So, play
+some tricks.
+
+#+begin_src bash
+#!/bin/bash
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup  dunetpc v09_31_00 -q e20:prof
+unsetup larwirecell 
+setup larwirecell v09_04_01 -q e20:prof 
+# Now patch in our desired config
+mycfg=$(dirname $BASH_SOURCE)/cfg
+WIRECELL_PATH=/home/bv/wrk/ls4gan/toyzero/wire-cell-toolkit/cfg:/home/bv/wrk/ls4gan/toyzero/wire-cell-data:$mycfg
+FHICL_FILE_PATH=$FHICL_FILE_PATH:$mycfg
+#+end_src
+
+*** Run
+
+Start container as above
+
+#+begin_example
+================================================================================================================================
+TimeTracker printout (sec)                        Min           Avg           Max         Median          RMS         nEvts   
+================================================================================================================================
+Full event                                      191.166       191.166       191.166       191.166          0            1     
+--------------------------------------------------------------------------------------------------------------------------------
+source:EmptyEvent(read)                       0.000222954   0.000222954   0.000222954   0.000222954        0            1     
+simulate:cosmicgenerator:CORSIKAGen             3.71208       3.71208       3.71208       3.71208          0            1     
+simulate:ar39:RadioGen                         0.0132742     0.0132742     0.0132742     0.0132742         0            1     
+simulate:ar42:RadioGen                        4.0783e-05    4.0783e-05    4.0783e-05    4.0783e-05         0            1     
+simulate:kr85:RadioGen                        0.00159469    0.00159469    0.00159469    0.00159469         0            1     
+simulate:rn222:RadioGen                       0.000127216   0.000127216   0.000127216   0.000127216        0            1     
+simulate:largeant:larg4Main                     10.0462       10.0462       10.0462       10.0462          0            1     
+simulate:IonAndScint:IonAndScint                0.34269       0.34269       0.34269       0.34269          0            1     
+simulate:DumpVolts:WireCellToolkit              176.669       176.669       176.669       176.669          0            1     
+[art]:TriggerResults:TriggerResultInserter    0.000125076   0.000125076   0.000125076   0.000125076        0            1     
+================================================================================================================================
+#+end_example
+
+And, file sizes
+
+#+begin_example
+-rw-rw-r-- 1 bv bv  53M Oct  4 15:40 signal-volts-apa0.tar.bz2
+-rw-rw-r-- 1 bv bv  46M Oct  4 15:40 signal-volts-apa1.tar.bz2
+-rw-rw-r-- 1 bv bv  45M Oct  4 15:40 signal-volts-apa2.tar.bz2
+-rw-rw-r-- 1 bv bv  48M Oct  4 15:40 signal-volts-apa3.tar.bz2
+-rw-rw-r-- 1 bv bv  47M Oct  4 15:40 signal-volts-apa4.tar.bz2
+-rw-rw-r-- 1 bv bv  52M Oct  4 15:40 signal-volts-apa5.tar.bz2
+#+end_example
+
+*** Bugs?
+
+FYI there seems some bug:
+
+#+begin_example
+Singularity> tar -tvf  signal-volts-apa0.tar.bz2
+-rw-r--r-- bv/bv      57072128 2021-10-04 15:38 frame_*_0.npy
+#+end_example
+
+That looks like a bug in my config.  I need to set an explicit tag
+name.  I think there should also be a "channels" array?
+
+Also:
+
+#+begin_example
+❯ tar -xvf signal-volts-apa0.tar.bz2 
+frame_*_0.npy
+tar: A lone zero block at 111471
+#+end_example
+
+*** Results
+
+As the name "volts" implies, these are 32 bit float arrays.  They are
+also dense but zero padded.  Why do they compress so poorly?
+
+#+begin_src python
+fp = np.load("frame_*_0.npy")
+print(fp.shape, fp.dtype)
+(2378, 6000) dtype('float32')
+plt.imshow(fp)
+#+end_src
+
+Plenty of juicy tracks, very few zeros.  Fraction with absolute value
+less than given:
+
+#+begin_example
+0 0.099 < 1e-15
+1 0.141 < 1e-14
+2 0.204 < 1e-13
+3 0.299 < 1e-12
+4 0.651 < 1e-11
+5 0.850 < 1e-10
+6 0.959 < 1e-09
+7 0.992 < 1e-08
+8 1.000 < 1e-07
+9 1.000 < 1e-06
+#+end_example
 

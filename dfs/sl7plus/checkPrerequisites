@@ -1,0 +1,670 @@
+#!/bin/bash
+########################################################################
+# checkPrerequisites.
+#
+# Script to check for known OS-level prerequisites and give instructions
+# for remediation if necessary.
+#########################################################################
+
+## copy to SciSoft and rename:
+## cp -p checkPrerequisites /nasroot/SciSoft/bundles/tools/checkPrerequisitesV1
+## As long as the only changes are additions to the prerequisites,
+## the name in /nasroot/SciSoft/bundles/tools does not need to change.
+##
+## The internal version listed by print_version should change whenever any 
+## change at all is made to this file. 
+
+print_version()
+{
+  echo "$(basename ${0}) 1.03.01"
+}
+
+########################################################################
+# These functions adapted from ssibuildshims/get_os_platform from
+# ssibuildshims v0_06_09, pending a reorganisation for reuse purposes.
+#
+# Global variables generated:
+#
+#		OS1:	(mostly) output of uname
+#		OS:		OS1 + OS version
+#		plat:	i386, x86-64 etc.
+# 
+check_with_lsb_release () {
+  plat="$(uname -p)"
+  local OSnum
+  if [ "$(lsb_release -d | cut -f2 | cut  -f1 -d" ")" = "Ubuntu" ]
+  then
+    OS1=u
+    OSnum="$(lsb_release -r | cut -f2 | cut -f1 -d".")"
+    OS=${OS1}${OSnum}
+    plat="$(uname -m)"
+  elif [ ${OS1} = "Linux" ]
+  then
+    OSnum="$(lsb_release -r | cut -f2 | cut -f1 -d".")"
+    OS=${OS1}${OSnum}
+    if [ "$(lsb_release -d | cut  -f3 -d" ")" = "SL" ]
+    then
+      # Scientific Linux - slf should work
+	    OS=slf${OSnum}
+    elif [ "$(lsb_release -d | cut  -f3 -d" ")" = "SLF" ]
+    then
+      # Scientific Linux Fermi
+	    OS=slf${OSnum}
+    elif [ "$(lsb_release -i | cut -f2)" = "ScientificFermi" ]
+    then
+	    OS=slf${OSnum}
+    # pretend that SL6 is the same as SLF6
+    elif [ "$(lsb_release -i | cut -f2)" = "Scientific" ]
+      then
+	 OS=slf${OSnum}
+      # pretend that CentOS is SLF
+      elif [ "$(lsb_release -i | cut -f2)" = "CentOS" ]
+      then
+	 OS=slf${OSnum}
+      # pretend that RedHatEnterpriseServer is SLF
+      elif [ "$(lsb_release -i | cut -f2)" = "RedHatEnterpriseServer" ]
+      then
+	 OS=slf${OSnum}
+      # Scientific Linux CERN
+      elif [ "$(lsb_release -d | cut  -f4 -d" ")" = "SLC" ]
+      then
+	 OS=slc${OSnum}
+      elif [ "$(lsb_release -d | cut  -f4 -d" ")" = "LTS" ]
+      then
+	 OS=slf${OSnum}
+      # unrecognized - pretend that this is SLF
+      else
+	 OS=slf${OSnum}
+      fi
+   fi
+}
+
+default_names ()
+{
+    local OSnum1="$(uname -r | cut -f1 -d".")"
+    local OSnum2="$(uname -r | cut -f2 -d".")"
+    OS=${OS1}${OSnum1}${OSnum2}
+    plat="$(uname -p)"
+}
+
+check_linux ()
+{
+   plat="$(uname -p)"
+   local OSnum
+   if [ -e /etc/system-release-cpe ]
+   then
+      OSnum="$(cat /etc/system-release-cpe | cut -f5 -d":" |  cut -f1 -d".")"
+      if [ "$(cat /etc/redhat-release | cut  -f4 -d" ")" = "SLC" ]
+      then
+         OS=slc${OSnum}
+      else
+         OS=slf${OSnum}
+      fi
+   elif [ -e /etc/redhat-release ]
+   then
+      if [ "$(cat /etc/redhat-release | cut  -f4 -d" ")" = "SLC" ]
+      then
+         OS=slc${OSnum}
+         OSnum="$(cat /etc/redhat-release | cut -f6 -d" " |  cut -f1 -d".")"
+      elif [ "$(cat /etc/redhat-release | cut  -f3 -d" ")" = "Fermi" ]
+      then
+         OS=slf${OSnum}
+         OSnum="$(cat /etc/redhat-release | cut -f5 -d" " |  cut -f1 -d".")"
+      elif [ "$(cat /etc/redhat-release | cut  -f3 -d" ")" = "SLF" ]
+      then
+         OS=slf${OSnum}
+         OSnum="$(cat /etc/redhat-release | cut -f5 -d" " |  cut -f1 -d".")"
+      else
+         OS=slf${OSnum}
+         OSnum="$(cat /etc/redhat-release | cut -f5 -d" " |  cut -f1 -d".")"
+      fi
+   else
+      default_names
+   fi
+}
+
+get_os_platform_() {
+  # return type
+  return_type=${1}
+
+  if [ -z ${return_type} ]
+  then
+    return_type="osname"
+  fi
+
+  # generate the os platform name
+  OS1="$(uname)"
+  if [ ${OS1} = "Darwin" ]
+  then
+    plat="$(uname -m)"
+    local macos1="$(sw_vers -productVersion | cut -d'.' -f1)"
+    local macos2="$(sw_vers -productVersion | cut -d'.' -f2)"
+    local macos="${macos1}.${macos2}"
+    OS="osx${macos1}${macos2}"
+  elif [ "${flvr0}" = "Linuxppc" ]
+  then
+    OS=slf5
+    plat="$(uname -p)"
+  elif [ -e /usr/bin/lsb_release ]
+  then
+    check_with_lsb_release
+  elif [ "${OS1}" = "Linux" ]
+  then
+    check_linux
+  else
+    default_names
+  fi
+
+  if [ "${return_type}" = "osname" ]
+  then
+    echo "${OS}-${plat}"
+  elif [ "${return_type}" = "osplat" ]
+  then
+    echo "${plat}"
+  fi
+  return 0
+}
+
+get_os_platform() {
+  get_os_platform_ osname
+}
+
+get_platform() {
+  get_os_platform_ osplat
+}
+########################################################################
+
+########################################################################
+# check_rpms
+#
+# For sl5-like and sl6-like machines we know what rpms are required.
+check_rpms() {
+  type yum >/dev/null 2>&1 || \
+   { echo "ERROR: cannot find yum command! Install from your distribution and re-try." 1>&2; return 1; }
+  local missing
+  declare -a missing
+ for pkg in "${wanted[@]}"; do
+    rpm -q "${pkg}" >/dev/null 2>&1 || missing[${#missing[@]}]=${pkg}
+  done
+  if (( ${#missing[@]} )); then
+    cat 1>&2 <<EOF
+ERROR: Missing rpms -- do:
+  yum install ${missing[@]}
+and re-run.
+EOF
+    return 1
+  fi
+}
+
+########################################################################
+# check_apt
+#
+# For sl5-like and sl6-like machines we know what rpms are required.
+check_apt() {
+  local missing
+  declare -a missing
+ for pkg in "${wanted[@]}"; do
+    apt-cache policy "${pkg}" | grep none  >/dev/null 2>&1 && missing[${#missing[@]}]=${pkg}
+  done
+  if (( ${#missing[@]} )); then
+    cat 1>&2 <<EOF
+ERROR: Missing packages -- do:
+  sudo apt-get install ${missing[@]}
+and re-run.
+EOF
+    return 1
+  fi
+}
+
+########################################################################
+# set_wanted_slf5
+#
+# note that libconfuse-devel is in the dag repository for slf5
+set_wanted_slf5() {
+  wanted=(atk-devel
+      apr-devel
+      asciidoc
+      cairo-devel
+      curl-devel
+      fontconfig-devel
+      freetype-devel
+      glib2-devel
+      glibc-devel
+      gtk2-devel
+      krb5-devel
+      libconfuse-devel
+      libICE-devel
+      libSM-devel
+      libX11-devel
+      libXext-devel
+      libXft-devel
+      libXi-devel
+      libXrender-devel
+      libXt-devel
+      libpng-devel
+      libstdc++-devel
+      mesa-libGL-devel
+      mesa-libGLU-devel
+      ncurses-devel
+      nss-devel
+      openssl-devel
+      openldap-devel
+      pango-devel
+      perl-DBD-SQLite
+      qt-devel
+      swig
+      texinfo
+      util-linux
+      xmlto
+      zlib-devel
+      glibc-devel.i386
+      readline-devel
+      expat-devel
+      libXpm-devel
+      libXmu-devel
+      gdbm-devel
+      bzip2-devel
+      texinfo
+      tk-devel
+      tcl-devel
+      gcc
+      gcc-c++
+      libgcc)
+}
+
+########################################################################
+# set_wanted_slf6
+#
+# note that libconfuse-devel is in the epel repository for slf6
+set_wanted_slf6() {
+  wanted=(atk-devel
+      apr-devel
+      asciidoc
+      cairo-devel
+      libconfuse-devel
+      libcurl-devel
+      fontconfig-devel
+      freetype-devel
+      glew-devel
+      glib2-devel
+      glibc-devel
+      gtk2-devel
+      krb5-devel
+      libICE-devel
+      libSM-devel
+      libuuid-devel
+      libX11-devel
+      libXext-devel
+      libXft-devel
+      libXi-devel
+      libXrender-devel
+      libXt-devel
+      libpng-devel
+      libstdc++-devel
+      mesa-libGL-devel
+      mesa-libGLU-devel
+      ncurses-devel
+      nss-devel
+      openssl-devel
+      openldap-devel
+      pango-devel
+      perl-DBD-SQLite
+      qt-devel
+      xz-devel
+      swig
+      texinfo
+      util-linux-ng
+      xmlto
+      zlib-devel
+      readline-devel
+      expat-devel
+      libXpm-devel
+      libXmu-devel
+      gdbm-devel
+      bzip2-devel
+      texinfo
+      tk-devel
+      tcl-devel
+      gcc
+      gcc-c++
+      libgcc.i686
+      libgcc
+      glibc-devel.i686
+      libstdc++.i686
+      libffi-devel)
+}
+
+########################################################################
+# set_wanted_slf7
+#
+# note that libconfuse-devel is in the epel repository for slf7
+# you will need redhat-lsb-core
+set_wanted_slf7() {
+  wanted=(subversion
+      asciidoc
+      bzip2
+      bzip2-devel
+      fontconfig-devel
+      freetype-devel
+      ftgl-devel
+      gdbm-devel
+      giflib-devel
+      gl2ps-devel
+      glew-devel
+      glibc-devel
+      ncurses-devel
+      openssl-devel
+      openldap-devel
+      pcre2-devel
+      readline-devel
+      autoconf
+      automake
+      libtool
+      lz4-devel
+      swig
+      texinfo
+      tcl-devel
+      tk-devel
+      xz-devel
+      xmlto
+      xxhash
+      xxhash-devel
+      zlib-devel
+      zstd
+      libAfterImage-devel
+      libcurl-devel
+      libjpeg-turbo-devel
+      libpng-devel
+      libstdc++-devel
+      libuuid-devel
+      libX11-devel
+      libXext-devel
+      libXft-devel
+      libXi-devel
+      libXrender-devel
+      libXt-devel
+      libXpm-devel
+      libXmu-devel
+      libzstd-devel
+      mesa-libGL-devel
+      mesa-libGLU-devel
+      perl-DBD-SQLite
+      perl-ExtUtils-MakeMaker
+      gcc
+      gcc-c++
+      libgcc
+      libgcc.i686
+      glibc-devel.i686
+      libstdc++.i686
+      libffi-devel)
+}
+
+########################################################################
+# set_wanted_u14
+#
+set_wanted_u14() {
+  wanted=(tcl-dev
+tk-dev
+cvs
+git
+g++
+libc6-dev-i386
+zlib1g-dev
+texinfo
+libncurses5-dev
+libssl-dev
+libcurl4-openssl-dev
+libexpat1-dev
+libtk8.6
+libtcl8.6
+gettext
+autoconf
+dpkg-dev
+lsb-core
+libbz2-dev
+libgdbm-dev
+libgdbm-compat-dev
+liblzma-dev
+libreadline-dev
+libgl1-mesa-dev
+libglu1-mesa-dev
+libX11-dev
+libXmu-dev
+libxpm-dev
+libxft-dev
+libxext-dev
+subversion
+
+      )
+}
+
+########################################################################
+# set_wanted_u16
+#
+set_wanted_u16() {
+  wanted=(tcl-dev
+tk-dev
+cvs
+git
+g++
+libc6-dev-i386
+zlib1g-dev
+texinfo
+libncurses5-dev
+libssl-dev
+libcurl4-openssl-dev
+libkrb5-dev
+libexpat1-dev
+libtk8.6
+libtcl8.6
+gettext
+autoconf
+dpkg-dev
+lsb-core
+libbz2-dev
+libgdbm-dev
+libgdbm-compat-dev
+liblzma-dev
+libreadline-dev
+libgl1-mesa-dev
+libglu1-mesa-dev
+libX11-dev
+libxmu-dev
+libxpm-dev
+libxft-dev
+libxext-dev
+subversion
+uuid-dev
+libffi-dev
+      )
+}
+
+########################################################################
+# set_wanted_u18
+#
+set_wanted_u18() {
+  wanted=(tcl-dev
+tk-dev
+cvs
+git
+g++
+libc6-dev-i386
+zlib1g-dev
+texinfo
+libncurses5-dev
+libssl-dev
+libcurl4-openssl-dev
+libkrb5-dev
+libexpat1-dev
+libtk8.6
+libtcl8.6
+gettext
+autoconf
+dpkg-dev
+lsb-core
+libafterimage-dev
+libbz2-dev
+libftgl-dev
+libgdbm-dev
+libgdbm-compat-dev
+liblz4-dev
+liblzma-dev
+libreadline-dev
+libfreetype6-dev
+libgl1-mesa-dev
+libgl2ps-dev
+libglew-dev
+libglu1-mesa-dev
+libpcre3-dev
+libperl-dev
+libX11-dev
+libxmu-dev
+libxpm-dev
+libxft-dev
+libxext-dev
+libzstd-dev
+subversion
+uuid-dev
+libffi-dev
+zip
+zstd
+      )
+}
+
+########################################################################
+# set_wanted_u20
+#
+# not found: libX11-dev
+#
+set_wanted_u20() {
+  wanted=(tcl-dev
+tk-dev
+cvs
+git
+g++
+libc6-dev-i386
+zlib1g-dev
+texinfo
+libncurses5-dev
+libssl-dev
+libcurl4-openssl-dev
+libkrb5-dev
+libexpat1-dev
+libtk8.6
+libtcl8.6
+gettext
+autoconf
+dpkg-dev
+lsb-core
+libafterimage-dev
+libbz2-dev
+libftgl-dev
+libgdbm-dev
+libgdbm-compat-dev
+liblz4-dev
+liblzma-dev
+libreadline-dev
+libfreetype6-dev
+libgl1-mesa-dev
+libgl2ps-dev
+libglew-dev
+libglu1-mesa-dev
+libpcre3-dev
+libperl-dev
+libxmu-dev
+libxpm-dev
+libxft-dev
+libxext-dev
+libxxhash-dev
+libzstd-dev
+subversion
+uuid-dev
+libffi-dev
+xxhash
+zip
+zstd
+python-is-python3
+python3-pip
+      )
+}
+
+########################################################################
+# Main program.
+#
+
+print_version
+echo "INFO: Checking prerequisites for art and dependent packages."
+
+if [[ "$(uname)" == Linux ]] && \
+  ! type lsb_release >/dev/null 2>&1; then
+  cat 1>&2 <<EOF
+lsb_release is a prerequisite on linux: please install and re-run.
+
+For machines with yum, do:
+
+  yum whatprovides /usr/bin/lsb_release
+  yum install <RPM>
+
+For machines with apt-get, do:
+
+  apt-get install lsb-release
+
+EOF
+    exit 1
+fi
+
+get_os_platform >/dev/null 2>&1
+
+case ${OS} in
+    sl[cf]5)
+      set_wanted_slf5
+      check_rpms
+      ;;
+    sl[cf]6)
+      set_wanted_slf6
+      check_rpms
+      ;;
+    sl[cf]7)
+      set_wanted_slf7
+      check_rpms
+      ;;
+    u14)
+      set_wanted_u14
+      check_apt
+      ;;
+    u16)
+      set_wanted_u16
+      check_apt
+      ;;
+    u18)
+      set_wanted_u18
+      check_apt
+      ;;
+    u20)
+      set_wanted_u20
+      check_apt
+      ;;
+    osx*)
+      echo "INFO: this script does not check OSX"
+      echo "INFO: make sure that Xcode, Xquartz, and the command line tools are installed"
+      exit 0
+      ;;
+    *)
+      cat 1>&2 <<EOF
+Currently unable to identify prerequisites for your system
+(${OS}). Please contact artists@fnal.gov for help.
+EOF
+      exit 1
+esac
+status=$?
+if (( ${status} == 0 )); then
+  echo "INFO: All known prerequisites satisfied for art and dependencies."
+else
+  echo "ERROR: Some prerequisites missing: see above for details." 1>&2
+fi
+
+exit ${status}
+
+# NOTES:
+# libuuid-devel provides <uuid/uuid.h>, which is used by ifdhc v2_3_4 and later
+#

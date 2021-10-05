@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# source this inside:
+# SHELL=bash UPS_OVERRIDE='-H Linux64bit+3.10-2.17' singularity exec --bind /cvmfs sl7plus.sif bash -l
+
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+
+
+setup  dunetpc v09_31_00 -q e20:prof
+unsetup larwirecell 
+setup larwirecell v09_04_01 -q e20:prof 
+# unsetup wirecell 
+# setup wirecell v0_17_0 -q e20:prof 
+
+# Now patch in our desired config
+mycfg=$(dirname $BASH_SOURCE)/cfg
+WIRECELL_PATH=/home/bv/wrk/ls4gan/toyzero/wire-cell-toolkit/cfg:/home/bv/wrk/ls4gan/toyzero/wire-cell-data:$mycfg
+FHICL_FILE_PATH=$FHICL_FILE_PATH:$mycfg
+

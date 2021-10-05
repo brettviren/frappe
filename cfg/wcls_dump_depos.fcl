@@ -1,0 +1,19 @@
+BEGIN_PROLOG
+wcls_dump_depos:
+{
+   module_type: WireCellToolkit
+   wcls_main: {
+      tool_type: WCLS
+      apps: ["Pgrapher"]
+      plugins: ["WireCellGen", "WireCellSio", "WireCellPgraph", "WireCellLarsoft"]
+      configs: ["wcls-dump-depos.jsonnet"]
+      inputers: ["wclsSimDepoSource"]
+      outputers: []
+      params: {
+         depo_input_label: "IonAndScint"
+         # fixme: switch to .tar.bz2 when we have sio::DepoFileSink
+         depo_file_name: "wcls-dump-depos.npz"
+      }
+   }
+}
+END_PROLOG
