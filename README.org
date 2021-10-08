@@ -250,7 +250,6 @@ Singularity> ls -lh cosmic-depos-10.root
 #+end_example
 
 
-
 *** Purge
 
 Next we need to see wtf is actually in that ROOT file.
@@ -441,10 +440,11 @@ simulate:DumpDepos:WireCellToolkit               27.31         27.31         27.
 ================================================================================================================================
 #+end_example
 
-** A WC/LS job to add noise-free ADC
 
-Perhaps running WCT sim and saving sparse waveforms will actually be
-faster and smaller.
+** A WC/LS job to add noise-free Voltage level
+
+It was suggested perhaps running WCT sim and saving sparse waveforms
+will be a better division between WC/LS and pure-WCT jobs.
 
 *** Setup
 
@@ -462,6 +462,8 @@ mycfg=$(dirname $BASH_SOURCE)/cfg
 WIRECELL_PATH=/home/bv/wrk/ls4gan/toyzero/wire-cell-toolkit/cfg:/home/bv/wrk/ls4gan/toyzero/wire-cell-data:$mycfg
 FHICL_FILE_PATH=$FHICL_FILE_PATH:$mycfg
 #+end_src
+
+Luckily, this seems to work fine.
 
 *** Run
 
@@ -499,17 +501,20 @@ And, file sizes
 
 *** Bugs?
 
-FYI there seems some bug:
+FYI there seems some bug in frame name:
 
 #+begin_example
 Singularity> tar -tvf  signal-volts-apa0.tar.bz2
 -rw-r--r-- bv/bv      57072128 2021-10-04 15:38 frame_*_0.npy
 #+end_example
 
-That looks like a bug in my config.  I need to set an explicit tag
-name.  I think there should also be a "channels" array?
+That looks like a problem in my config, probably needs an explicit tag
+name.  I think there should also be a "channels" array?  That could be
+a bigger problem
 
-Also:
+Also this warning, perhaps due to WCT tar streams not making the N
+zero blocks at EOF that GNU tar does and which I thought were
+optional.
 
 #+begin_example
 ❯ tar -xvf signal-volts-apa0.tar.bz2 
@@ -544,4 +549,189 @@ less than given:
 8 1.000 < 1e-07
 9 1.000 < 1e-06
 #+end_example
+
+In hindsight, the answer is obvious that the FFTs will spread value
+over the entire domain.  Ie, signals are not actually "sparse".
+
+Saving truncated 12bit ADC tier would be far more compressible but
+then later adding generated electronics noise to this would require a
+second creation of quantization noise.
+
+Could maybe play some game like:
+
+- apply scaling to get into units of ADC but keep 32bit floats
+- set all values, say, in +/- 1 ADC to zero ADC
+
+This would set the majority of the "pixels" to 0 so improve
+compression and have some kind of 2nd order error effect on sub-ADC
+values (which would be pushed above 1 ADC by later noise).
+
+Or, stick with saving depos....
+
+For that, we really should implement ~DepoFileSink~ so that we can
+immediately compress the files.  This will then require WCT 0.18 to
+propagate to Scisoft and/or we will need an interim method to build a
+container layer from source.
+
+
+
+
+** Building WCT in container
+
+The [[https://github.com/wirecell/wire-cell-toolkit/tree/hybrid-wcls][hybrid-wcls]] branch holds some depo I/O related components slated
+for 0.18.  Here I build that branch in sl7plus+CVMFS.
+
+#+begin_example
+❯ SHELL=bash UPS_OVERRIDE='-H Linux64bit+3.10-2.17' singularity exec --bind /cvmfs sl7plus.sif bash -l
+Singularity> git clone -b hybrid-wcls git@github.com:WireCell/wire-cell-toolkit.git wct-sl7
+bash: git: command not found
+Singularity> setup git
+#+end_example
+
+Repeat
+
+#+begin_example
+Singularity> cd wct-sl7/
+Singularity> source /cvmfs/larsoft.opensciencegrid.org/products/setup
+Singularity> setup larwirecell          v09_04_02 -q e20:prof
+#+end_example
+
+
+#+begin_example
+./wcb configure \
+  --prefix=$(pwd)/install \
+  --with-eigen-include=$EIGEN_INC \
+  --with-jsonnet=$GOJSONNET_FQ_DIR \
+  --with-jsoncpp=$JSONCPP_FQ_DIR \
+  --with-tbb=$TBB_FQ_DIR \
+  --with-spdlog=$SPDLOG_FQ_DIR \
+  --with-spdlog-lib=$SPDLOG_LIB \
+  --boost-include=$BOOST_INC --boost-lib=$BOOST_LIB --boost-mt 
+./wcb --notests install -p
+#+end_example
+
+*** Environment
+
+This needs all of dunetpc, and with ~wirecell v0_17_0~ and then to trick
+into using our build.
+
+#+begin_example
+Singularity> source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+Singularity> setup dunetpc v09_32_00 -q e20:prof
+#+end_example
+
+Fix all the unwanted UPS env:
+
+#+begin_example
+Singularity> cd /home/bv/wrk/ls4gan/frappe/wct-sl7
+
+WIRECELL_DIR=$(pwd)/install
+WIRECELL_FQ_DIR=$WIRECELL_DIR
+WIRECELL_INC=$WIRECELL_DIR/include
+WIRECELL_VERSION=v0_17_0dev          # invent
+WIRECELL_LIB=$WIRECELL_DIR/lib64
+#+end_example
+
+Patch up PATHs
+
+#+begin_example
+LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -v /wirecell/ | grep -v $WIRECELL_LIB | grep -v '^[[:space:]]*$' | tr '\n' ':' )$WIRECELL_LIB
+
+PATH=$(echo $PATH | tr ':' '\n' | grep -v /wirecell/ | grep -v $WIRECELL_FQ_DIR | grep -v '^[[:space:]]*$' | tr '\n' ':' )$WIRECELL_FQ_DIR/bin
+#+end_example
+
+Point to our cfg files.
+
+#+begin_example
+WIRECELL_PATH=~/wrk/ls4gan/frappe/cfg:~/wrk/ls4gan/frappe/wct-sl7/cfg:~/wrk/ls4gan/toyzero/wire-cell-data
+#+end_example
+
+*** Run
+
+#+begin_example
+Singularity> which wire-cell
+~/wrk/ls4gan/frappe/wct-sl7/install/bin/wire-cell
+Singularity> wire-cell -h
+Singularity> art -n1  -c cfg/cosmic_depos.fcl
+Singularity> art -n 10  -c cfg/cosmic_depos.fcl
+Singularity> ls -lh cosmic-depos.tar.bz2
+-rw-rw-r-- 1 bv bv 186M Oct  8 10:46 cosmic-depos.tar.bz2
+Singularity> tar -tvf cosmic-depos.tar.bz2
+-rw-r--r-- bv/bv      36749484 2021-10-08 10:42 depo_data_0.npy
+-rw-r--r-- bv/bv      20999760 2021-10-08 10:43 depo_info_0.npy
+-rw-r--r-- bv/bv      47008516 2021-10-08 10:43 depo_data_1.npy
+-rw-r--r-- bv/bv      26862064 2021-10-08 10:43 depo_info_1.npy
+-rw-r--r-- bv/bv      40527132 2021-10-08 10:43 depo_data_2.npy
+-rw-r--r-- bv/bv      23158416 2021-10-08 10:43 depo_info_2.npy
+-rw-r--r-- bv/bv      37308896 2021-10-08 10:44 depo_data_3.npy
+-rw-r--r-- bv/bv      21319424 2021-10-08 10:44 depo_info_3.npy
+-rw-r--r-- bv/bv      46822344 2021-10-08 10:44 depo_data_4.npy
+-rw-r--r-- bv/bv      26755680 2021-10-08 10:44 depo_info_4.npy
+-rw-r--r-- bv/bv      41794328 2021-10-08 10:45 depo_data_5.npy
+-rw-r--r-- bv/bv      23882528 2021-10-08 10:45 depo_info_5.npy
+-rw-r--r-- bv/bv      46552956 2021-10-08 10:45 depo_data_6.npy
+-rw-r--r-- bv/bv      26601744 2021-10-08 10:45 depo_info_6.npy
+-rw-r--r-- bv/bv      45576764 2021-10-08 10:45 depo_data_7.npy
+-rw-r--r-- bv/bv      26043920 2021-10-08 10:46 depo_info_7.npy
+-rw-r--r-- bv/bv      39564800 2021-10-08 10:46 depo_data_8.npy
+#+end_example
+
+Where's the rest of 8 and 9???
+
+Rerunning after apparently no code change(?) gets all 10 sets.  Not
+sure what happened there!
+
+#+begin_example
+❯ ls -lh cosmic-depos.tar.bz2
+-rw-rw-r-- 1 bv bv 176M Oct  8 11:04 cosmic-depos.tar.bz2
+❯ tar -tvf cosmic-depos.tar.bz2
+-rw-r--r-- bv/bv      33936884 2021-10-08 11:01 depo_data_0.npy
+-rw-r--r-- bv/bv      19392560 2021-10-08 11:01 depo_info_0.npy
+-rw-r--r-- bv/bv      37418432 2021-10-08 11:01 depo_data_1.npy
+-rw-r--r-- bv/bv      21382016 2021-10-08 11:01 depo_info_1.npy
+-rw-r--r-- bv/bv      44919184 2021-10-08 11:01 depo_data_2.npy
+-rw-r--r-- bv/bv      25668160 2021-10-08 11:01 depo_info_2.npy
+-rw-r--r-- bv/bv      38427216 2021-10-08 11:02 depo_data_3.npy
+-rw-r--r-- bv/bv      21958464 2021-10-08 11:02 depo_info_3.npy
+-rw-r--r-- bv/bv      48970392 2021-10-08 11:02 depo_data_4.npy
+-rw-r--r-- bv/bv      27983136 2021-10-08 11:02 depo_info_4.npy
+-rw-r--r-- bv/bv      46058504 2021-10-08 11:03 depo_data_5.npy
+-rw-r--r-- bv/bv      26319200 2021-10-08 11:03 depo_info_5.npy
+-rw-r--r-- bv/bv      45162140 2021-10-08 11:03 depo_data_6.npy
+-rw-r--r-- bv/bv      25806992 2021-10-08 11:03 depo_info_6.npy
+-rw-r--r-- bv/bv      41294584 2021-10-08 11:04 depo_data_7.npy
+-rw-r--r-- bv/bv      23596960 2021-10-08 11:04 depo_info_7.npy
+-rw-r--r-- bv/bv      38295588 2021-10-08 11:04 depo_data_8.npy
+-rw-r--r-- bv/bv      21883248 2021-10-08 11:04 depo_info_8.npy
+-rw-r--r-- bv/bv      34427472 2021-10-08 11:04 depo_data_9.npy
+-rw-r--r-- bv/bv      19672896 2021-10-08 11:04 depo_info_9.npy
+#+end_example
+
+*** Logging
+
+Also, changed logging.  Reminded of one thing and discovered another:
+the new logging setup has per-group streams and each stream when saved
+to file is buffered separately.  As such when used like:
+
+#+begin_src fcl
+      logsinks: ["wcls-dump-depos.log"]
+      loglevels: ["debug"]
+#+end_src
+
+One then sees per-stream time order which is actually handy.  A simple
+~sort~ will interleave the streams into full time order.  The buffering
+was a bit disconcerting first time as the log file stays zero size
+until the end.
+
+Can cover all bases with:
+
+#+begin_src fcl
+      logsinks: ["stderr", "stdout", "wcls-dump-depos.log"]
+      loglevels: ["debug"]
+#+end_src
+
+#+begin_example
+Singularity> art -n 2 -c cfg/cosmic_depos.fcl > wcls-dump-depos.artlog
+#+end_example
+
 

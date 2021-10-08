@@ -1,33 +1,34 @@
 # Configure WC/LS to dump out depos
 
-local g = import 'pgraph.jsonnet';
+local pg = import 'pgraph.jsonnet';
 local wc = import 'wirecell.jsonnet';
 
-local deposrc = g.pnode({
-    type: 'wclsSimDepoSource',
-    data: {
-        art_tag: std.extVar("depo_input_label"), // "IonAndScint"
-    },
-}, nin=0, nout=1);
+local graph = pg.pipeline([
+    pg.pnode({
+        type: 'wclsSimDepoSource',
+        data: {
+            art_tag: "IonAndScint"
+        },
+    }, nin=0, nout=1),
+    
+    pg.pnode({
+        type: 'DepoBagger'
+    }, nin=1, nout=1),
 
-local deposaver = g.pnode({
-    # fixme: need DepoFileSink! this saves in uncompressed zip form
-    type: 'NumpyDepoSaver',
-    data: {
-        filename: std.extVar("depo_file_name"),
-    },
-}, nin=1, nout=1);
-
-local deposink = g.pnode({ type: 'DumpDepos' }, nin=1, nout=0);
-
-local graph = g.pipeline([deposrc, deposaver, deposink]);
+    pg.pnode({
+        type: 'DepoFileSink',
+        data: {
+            outname: "cosmic-depos.tar.bz2"
+        },
+    }, nin=1, nout=1),
+]);
 
 local app = {
-  type: 'Pgrapher',
+  type: 'TbbFlow',              // must match what used in fcl
   data: {
-    edges: g.edges(graph),
+    edges: pg.edges(graph),
   },
 };
 
-g.uses(graph) + [app]
+pg.uses(graph) + [app]
 

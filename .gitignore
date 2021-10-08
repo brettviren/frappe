@@ -7,3 +7,8 @@
 *.npy
 *.tar.bz2
 *.gz
+wct-sl7
+*.npz
+*.log
+*.artlog
+junk*

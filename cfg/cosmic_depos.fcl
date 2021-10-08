@@ -23,7 +23,30 @@ protodune_larg4_services:
 }
 
 
+wcls_dump_depos:
+{
+   module_type: WireCellToolkit
+   wcls_main: {
+      tool_type: WCLS
+      apps: ["TbbFlow"]
+      plugins: ["WireCellGen", "WireCellSio", "WireCellTbb",
+         "WireCellLarsoft"]
+      configs: ["wcls-dump-depos.jsonnet"]
+      inputers: ["wclsSimDepoSource"]
+      outputers: []
+      # not, file sinks buffer per stream.
+      logsinks: ["stderr", "stdout", "wcls-dump-depos.log"]
+      loglevels: ["debug"]
+      # params: {
+      #    depo_input_label: "IonAndScint"
+      #    # fixme: switch to .tar.bz2 when we have sio::DepoFileSink
+      #    depo_file_name: "wcls-dump-depos.npz"
+      # }
+   }
+}
 END_PROLOG
+
+
 
 #include "singles_dune.fcl"
 #include "corsika_protodune.fcl"
@@ -32,8 +55,6 @@ END_PROLOG
 #include "LArG4_dune.fcl"
 
 #include "IonAndScint_dune.fcl"
-
-#include "wcls_dump_depos.fcl"
 
 process_name: CosmicDepos
 
