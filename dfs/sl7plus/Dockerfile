@@ -11,6 +11,7 @@ RUN yum -y install epel-release \
     redhat-lsb-core \
     subversion asciidoc bzip2-devel fontconfig-devel freetype-devel ftgl-devel gdbm-devel giflib-devel gl2ps-devel glew-devel glibc-devel ncurses-devel openssl-devel openldap-devel pcre2-devel readline-devel autoconf automake libtool lz4-devel swig texinfo tcl-devel tk-devel xz-devel xmlto xxhash xxhash-devel zlib-devel zstd libAfterImage-devel libcurl-devel libjpeg-turbo-devel libpng-devel libstdc++-devel libuuid-devel libX11-devel libXext-devel libXft-devel libXi-devel libXrender-devel libXt-devel libXpm-devel libXmu-devel libzstd-devel mesa-libGL-devel mesa-libGLU-devel perl-DBD-SQLite perl-ExtUtils-MakeMaker gcc gcc-c++ libgcc.i686 glibc-devel.i686 libstdc++.i686 libffi-devel \
     ftgl-devel gl2ps-devel xxhash xxhash-devel zstd libAfterImage-devel libzstd-devel \
+    less wget curl git strace \
     && yum clean all
 RUN curl https://scisoft.fnal.gov/scisoft/bundles/tools/checkPrerequisites | bash
 

@@ -576,7 +576,7 @@ container layer from source.
 
 
 
-** Building WCT in container
+** Building WCT live in container
 
 The [[https://github.com/wirecell/wire-cell-toolkit/tree/hybrid-wcls][hybrid-wcls]] branch holds some depo I/O related components slated
 for 0.18.  Here I build that branch in sl7plus+CVMFS.
@@ -734,4 +734,52 @@ Can cover all bases with:
 Singularity> art -n 2 -c cfg/cosmic_depos.fcl > wcls-dump-depos.artlog
 #+end_example
 
+
+
+
+** Containerize the build and its product
+
+We want to provide an image with an updated WCT that is pre-built on
+top of UPS WC/LS.  And we want to use that build in two types of
+containers:
+
+- fat :: Scisoft+WCT is the 20GB+ image for HPC or others that do not allow CVMFS and which provides UPS products directly.
+
+- thin :: CVMFS+WCT is a smaller image which relies on CVMFS at run time for UPS products.
+
+The *thin* is produced from the *fat* by using the Dockerfile ~COPY~ to copy
+the results of the WCT compilation done in producing *fat*.
+
+First, we need a fat container
+
+#+begin_example
+❯ coups update
+❯ coups container -o build-larsoft-09.32.00.sh \
+   larsoft-09.32.00-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+❯ bash build-larsoft-09.32.00.sh
+#+end_example
+
+
+Then, the updated WCT layer is [[file:dfs/wctnew/]].
+
+#+begin_example
+❯ cd dfs/wctnew/
+❯ docker build -t wctnew .
+❯ cat thinner.df | docker build -t wctnewthin -
+❯ docker image ls
+REPOSITORY                     TAG                           IMAGE ID       CREATED          SIZE
+wctnewthin                     latest                        1f94a1d16981   5 seconds ago    694MB
+wctnew                         latest                        055563e4b622   8 minutes ago    21.4GB
+brettviren/coups-larsoft       09.32.00-slf7-prof-e20-s112   64b7a97140dd   20 minutes ago   21GB
+brettviren/coups-larsoftobj    09.10.01-slf7-prof-e20        cdfe425dea6e   32 minutes ago   8.86GB
+brettviren/coups-larwire       09.04.01-slf7-prof-e20-s112   5107f38a7139   33 minutes ago   8.82GB
+brettviren/coups-ifdh          2.12.04-slf7-prof-e20         aa1998cf0ad8   34 minutes ago   7.48GB
+brettviren/coups-art           3.09.03-slf7-prof-e20         717dbf3c8f82   34 minutes ago   7.36GB
+brettviren/coups-canvas_base   3.12.04-slf7-prof-e20         2136a951f48e   35 minutes ago   7.14GB
+brettviren/coups-slf7-base     0.1                           f2118874af94   42 minutes ago   600MB
+#+end_example
+
+If supporting a particular experiment, this ~wctnewthin~ image could be
+made yet thinner by purging unnecessary files from
+~/opt/wct/share/wirecell~.
 

@@ -1,0 +1,5 @@
+FROM wctnew
+RUN strip /opt/wct/bin/* /opt/wct/lib64/lib*.so
+
+FROM brettviren/sl7plus
+COPY --from=0 /opt/wct /opt/wct
