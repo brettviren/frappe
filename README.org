@@ -1,4 +1,5 @@
-#+title: runart
+#+title: frappe
+
 
 * What?
 
@@ -11,6 +12,13 @@ consists of:
 - signals :: WCT SP including DNNROI
 - topo :: WCT 3D imaging
 
+Due to different "shapes" of these parts in terms of hardware
+requirements, this chain will be broken into two stages.
+
+- kine+track :: produce through and output depo files
+- sim+sp+img :: read in  depos do sim, sigproc and 3D imaging
+
+** Stage 1
 
 The first two require ~dunetpc~ software.  According to [[https://dune.github.io/computing-training-202105/06-intro-art-larsoft/index.html][Computing
 Training 202105]] under "Examples and current workflows" the likely jobs
@@ -28,10 +36,13 @@ I want produce a single ~.fcl~ that runs WC/LS to output WCT depo files.
 That will likely require building latest WCT and overriding the one
 provided by UPS.
 
-From those, a stand-alone WCT job will do the rest.  This will include
-DNNROI either integrated as a WCT component for via ZIO.
+** Stage 2
 
-* Development
+This can run in much less memory than stage 1 and can also run with
+multi cores and requires (or benefits from) GPU for DNNROI.  Depending
+on how testing goes with GPU utilization we may return to ZIO now.
+
+* Explore stage 1
 
 It's really hard to build useful full containers for UPS ecosystem
 without having them rely on CVMFS. For an attempt, ultimately in vain,
@@ -783,3 +794,67 @@ If supporting a particular experiment, this ~wctnewthin~ image could be
 made yet thinner by purging unnecessary files from
 ~/opt/wct/share/wirecell~.
 
+
+
+** Bring in GPU
+
+* Explore stage 2
+
+** Build
+
+First step is build WCT with libtorch for DNNROI.  I do this on native
+Debian.
+
+#+begin_example
+❯ sudo apt install libtorch-dev  # gives 1.7
+#+end_example
+
+This does not provide a ~pkg-config~ file so must give
+~--with-torch=/usr~.  TBB and boost from Debian 11, though just
+released, are too old so take from my own install.  ~spdlog~ is maybe
+okay from Debian but it's (1.8.1) also older than what I have (1.9.2)
+installed locally.
+
+#+begin_example
+  ❯ ./wcb configure --prefix=(pwd)/install \
+    --with-jsonnet=$HOME/opt/jsonnet \
+    --with-jsonnet-libs=gojsonnet \
+    --with-tbb=$HOME/opt/oneapi-tbb-2021.3.0 \
+    --with-tbb-include=$HOME/opt/oneapi-tbb-2021.3.0/include \
+    --with-tbb-lib=$HOME/opt/oneapi-tbb-2021.3.0//lib/intel64/gcc4.8 \
+    --boost-include=$HOME/opt/boost-1-76-0/include/ \
+    --boost-libs=$HOME/opt/boost-1-76-0/lib \
+    --boost-mt \
+    --with-spdlog=$HOME/opt/spdlog \
+    --with-libtorch=/usr
+  ❯ ./wcb --notests -p install  
+#+end_example
+
+** Configure
+
+DNN ROI means ~DNNROIFinder~ frame filter node which uses a ~TorchScript~
+tensor filter node as a "service" type component.  There is some
+testing and possible development needed here.  The issues:
+
+- ~TorchScript~ component may not be thread safe
+- Used as a service shared between per-APA components it may need a lock
+- Used as per-APA nodes, there is concern over memory usage
+- Used as a singular node, WCT will need a new node category which
+  supports an async "switch yard" N-to-1-to-N pattern.
+
+This progression of job config will be tried:
+
+1. an initial single-APA job so that the above issues are not faced
+
+2. simple extension to 6-APA job to check for memory problems
+
+3. if memory problem is found, then move to sharing one ~TorchScript~ with 6 ~DNNROIFinder~'s
+
+4. if that shows a thread problem, add a lock to ~TorchScript~.
+
+
+*** Single-APA job
+
+The model file is [[https://github.com/HaiwangYu/Pytorch-UNet/raw/master/ts-model/unet-l23-cosmic500-e50.ts][here]], (50 MB).
+
+Example config is [[https://github.com/HaiwangYu/wct-analysis/blob/master/ml-sp/dec-to-dnnsp.jsonnet#L254][here]].
