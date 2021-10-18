@@ -79,7 +79,7 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
             torch_script: ts.name
         }
     }, nin=1, nout=1, uses=[ts]);
-    local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=true);
+    local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=false);
     local dnn = [dnnroi, dnnsink];
 
     local graph = pg.pipeline([depos, drifter + sim] + nfsp + dnn);
