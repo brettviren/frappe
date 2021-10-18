@@ -58,14 +58,25 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
                      gauss, false),
     ];
 
-    local ts = pg.pnode({
+    local tscr = pg.pnode({
         type: "TorchScript",
         name: apaname,
         data: {
             model:"unet-l23-cosmic500-e50.ts",
-            gpu: false,
+            gpu: true,
         },
     }, nin=1, nout=1);
+    local tsrv = {
+        type: "TorchService",
+        name: apaname,
+        data: {
+            model:"unet-l23-cosmic500-e50.ts",
+            device: "gpucpu",
+            concurrency: 1,     // 0 means no concurency (only one thread)
+        },
+    };
+    local ts = {obj:tsrv, tn:wc.tn(tsrv)};
+    //local ts = {obj:tscr, tn:tscr.name};
     local dnntag = 'dnn_sp%d'%apaid;
     local dnnroi = pg.pnode({
         type: "DNNROIFinding",
@@ -76,9 +87,9 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
             outtag: dnntag,
             // Note, it is very much NOT idiomatic to tell one node about another!
             // Here, we rely on the fact that a pnode uses wc.tn() to form its name.
-            torch_script: ts.name
+            torch_script: ts.tn
         }
-    }, nin=1, nout=1, uses=[ts]);
+    }, nin=1, nout=1, uses=[ts.obj]);
     local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=true);
     local dnn = [dnnroi, dnnsink];
 
