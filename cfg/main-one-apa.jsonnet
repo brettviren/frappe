@@ -63,7 +63,7 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
         name: apaname,
         data: {
             model:"unet-l23-cosmic500-e50.ts",
-            gpu: true,
+            gpu: false,
         },
     }, nin=1, nout=1);
     local tsrv = {
@@ -75,8 +75,8 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
             concurrency: 1,     // 0 means no concurency (only one thread)
         },
     };
-    local ts = {obj:tsrv, tn:wc.tn(tsrv)};
-    //local ts = {obj:tscr, tn:tscr.name};
+    //local ts = {obj:tsrv, tn:wc.tn(tsrv)};
+    local ts = {obj:tscr, tn:tscr.name};
     local dnntag = 'dnn_sp%d'%apaid;
     local dnnroi = pg.pnode({
         type: "DNNROIFinding",
@@ -90,7 +90,7 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
             torch_script: ts.tn
         }
     }, nin=1, nout=1, uses=[ts.obj]);
-    local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=true);
+    local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=false);
     local dnn = [dnnroi, dnnsink];
 
     local graph = pg.pipeline([depos, drifter + sim] + nfsp + dnn);
