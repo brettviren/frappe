@@ -858,3 +858,5 @@ This progression of job config will be tried:
 The model file is [[https://github.com/HaiwangYu/Pytorch-UNet/raw/master/ts-model/unet-l23-cosmic500-e50.ts][here]], (50 MB).
 
 Example config is [[https://github.com/HaiwangYu/wct-analysis/blob/master/ml-sp/dec-to-dnnsp.jsonnet#L254][here]].
+
+Note, we need [[https://github.com/HaiwangYu/wct-analysis/blob/master/ml-sp/dec-to-dnnsp.jsonnet#L118][novel SP config]]

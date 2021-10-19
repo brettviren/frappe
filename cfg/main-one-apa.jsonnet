@@ -23,8 +23,13 @@ local resps_sigproc = resps_sim;
 local wires = "protodune-wires-larsoft-v4.json.bz2";
 local noisef = "protodune-noise-spectra-v1.json.bz2";
 
-function(depofile, gaussfile, dnnroifile, apaid=0) 
+function(depofile, apaid=0) 
     local apaname = std.toString(apaid);
+    local basename = depofile[:std.length(depofile)-8];
+    local origfile = basename + "-orig" + apaname + ".tar.bz2";
+    local gaussfile = basename + "-gauss" + apaname + ".tar.bz2";
+    local wienerfile = basename + "-wiener" + apaname + ".tar.bz2";
+    local dnnspfile = basename + "-dnnsp" + apaname + ".tar.bz2";
 
     local depos = io.depo_source(depofile);
     local wireobj = tz.wire_file(wires);
@@ -48,14 +53,34 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
                'adc',
                random);
     local adcpermv = tz.adcpermv(params.adc);
+    local orig = "orig%d"%apaid;
     local gauss = "gauss%d"%apaid;
+    local wiener = "wiener%d"%apaid;
     local nfsp = [
+
+        pg.fan.tap('FrameFanout', 
+                   io.frame_sink(orig, origfile, tags=[orig], digitize=true),
+                   orig),
+
         nf(anode, robjs_sigproc.fr, chndb_perfect,
            params.daq.nticks, params.daq.tick),
-        sp(anode, robjs_sigproc.fr, robjs_sigproc.er, spfilt, adcpermv),
-        io.frame_tap(gauss,
-                     io.frame_sink(gauss, gaussfile, tags=[gauss], digitize=true),
-                     gauss, false),
+
+        sp(anode, robjs_sigproc.fr, robjs_sigproc.er, spfilt, adcpermv,
+           // override={
+           //     sparse: true,
+           //     use_roi_debug_mode: true,
+           //     use_multi_plane_protection: true,
+           //     process_planes: [0, 1, 2]
+           // }
+          ),
+
+        pg.fan.tap('FrameFanout',
+                   io.frame_sink(gauss, gaussfile, tags=[gauss], digitize=false),
+                   gauss),
+
+        pg.fan.tap('FrameFanout',
+                   io.frame_sink(wiener, wienerfile, tags=[wiener], digitize=false),
+                   wiener),
     ];
 
     local tscr = pg.pnode({
@@ -77,7 +102,7 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
     };
     //local ts = {obj:tsrv, tn:wc.tn(tsrv)};
     local ts = {obj:tscr, tn:tscr.name};
-    local dnntag = 'dnn_sp%d'%apaid;
+    local dnntag = 'dnnsp%d'%apaid;
     local dnnroi = pg.pnode({
         type: "DNNROIFinding",
         name: apaname,
@@ -90,27 +115,9 @@ function(depofile, gaussfile, dnnroifile, apaid=0)
             torch_script: ts.tn
         }
     }, nin=1, nout=1, uses=[ts.obj]);
-    local dnnsink = io.frame_sink(dnntag, dnnroifile, tags=[dnntag], digitize=false);
+    local dnnsink = io.frame_sink(dnntag, dnnspfile, tags=[dnntag], digitize=false);
     local dnn = [dnnroi, dnnsink];
 
-    local graph = pg.pipeline([depos, drifter + sim] + nfsp + dnn);
+    local graph = pg.pipeline([depos, drifter, sim] + nfsp + dnn);
 
-    local plugins = [
-        "WireCellSio",
-        "WireCellGen", "WireCellSigProc", 
-        "WireCellApps", "WireCellTbb", "WireCellPytorch"];
-
-    local appcfg = {
-        type: 'TbbFlow',
-        data: {
-            edges: pg.edges(graph)
-        },
-    };
-    local cmdline = {
-        type: "wire-cell",
-        data: {
-            plugins: plugins,
-            apps: [appcfg.type]
-        }
-    };
-    [cmdline] + pg.uses(graph) + [appcfg]
+    tz.main(graph, 'TbbFlow', ['WireCellPytorch'])
