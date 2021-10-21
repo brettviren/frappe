@@ -1,0 +1,12 @@
+[submodule "wire-cell-data"]
+	path = wire-cell-data
+	url = git@github.com:WireCell/wire-cell-data.git
+[submodule "wire-cell-toolkit"]
+	path = wire-cell-toolkit
+	url = git@github.com:WireCell/wire-cell-toolkit.git
+[submodule "wire-cell-python"]
+	path = wire-cell-python
+	url = git@github.com:WireCell/wire-cell-python.git
+[submodule "toyzero"]
+	path = toyzero
+	url = git@github.com:ls4gan/toyzero.git

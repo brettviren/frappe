@@ -1,5 +1,13 @@
 #+title: frappe
 
+This is a workspace and not meant for others to use easily.
+
+* Needs
+
+- ~toyzero/cfg/~ from ~mtspimg~ branch
+- ~wire-cell-toolkit/cfg/~ from ~hybrid-wcls~ branch
+- WCT itself from ~hybrid-wcls~ branch
+- ~wire-cell-python~ from ~master~
 
 * What?
 
@@ -860,3 +868,9 @@ The model file is [[https://github.com/HaiwangYu/Pytorch-UNet/raw/master/ts-mode
 Example config is [[https://github.com/HaiwangYu/wct-analysis/blob/master/ml-sp/dec-to-dnnsp.jsonnet#L254][here]].
 
 Note, we need [[https://github.com/HaiwangYu/wct-analysis/blob/master/ml-sp/dec-to-dnnsp.jsonnet#L118][novel SP config]]
+
+- [[file:cfg/main-one-apa.jsonnet]] exercise a single APA
+- [[file:cfg/main-all-apa.jsonnet]] for all 6 APAs
+
+Both read a ~cosmic-depos.tar.bz2~ file as made above.
+
