@@ -9,6 +9,8 @@ This is a workspace and not meant for others to use easily.
 - WCT itself from ~hybrid-wcls~ branch
 - ~wire-cell-python~ from ~master~
 
+These are added as git submodules.  See [[file:configure-wct.sh]] and [[file:.envrc]] for getting started.
+
 * What?
 
 I want to produce a large sample of simulated data for ls4gan which
