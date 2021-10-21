@@ -23,7 +23,9 @@ local resps_sigproc = resps_sim;
 local wires = "protodune-wires-larsoft-v4.json.bz2";
 local noisef = "protodune-noise-spectra-v1.json.bz2";
 
-function(depofile, apaid=0) 
+// set scale to -1 if depos are from larsoft and +1 if following WCT
+// convention.
+function(depofile, apaid=0, scale=-1.0) 
     local apaname = std.toString(apaid);
     local basename = depofile[:std.length(depofile)-8];
     local origfile = basename + "-orig" + apaname + ".tar.bz2";
@@ -31,7 +33,7 @@ function(depofile, apaid=0)
     local wienerfile = basename + "-wiener" + apaname + ".tar.bz2";
     local dnnspfile = basename + "-dnnsp" + apaname + ".tar.bz2";
 
-    local depos = io.depo_source(depofile);
+    local depos = io.depo_source(depofile, scale=scale);
     local wireobj = tz.wire_file(wires);
     local anodes = tz.anodes(wireobj, params.det.volumes);
     local anode = anodes[apaid];
@@ -56,68 +58,116 @@ function(depofile, apaid=0)
     local orig = "orig%d"%apaid;
     local gauss = "gauss%d"%apaid;
     local wiener = "wiener%d"%apaid;
+    local apa_dense = {chbeg:0,   chend:2560, tbbeg:0, tbend:params.daq.nticks};
+    local upl_dense = {chbeg:0,   chend:800 , tbbeg:0, tbend:params.daq.nticks};
+    local vpl_dense = {chbeg:800, chend:1600, tbbeg:0, tbend:params.daq.nticks};
     local nfsp = [
 
         pg.fan.tap('FrameFanout', 
-                   io.frame_sink(orig, origfile, tags=[orig], digitize=true),
+                   io.frame_sink(orig, origfile, tags=[orig],
+                                 digitize=true, dense=apa_dense),
                    orig),
 
         nf(anode, robjs_sigproc.fr, chndb_perfect,
            params.daq.nticks, params.daq.tick),
 
         sp(anode, robjs_sigproc.fr, robjs_sigproc.er, spfilt, adcpermv,
-           // override={
-           //     sparse: true,
-           //     use_roi_debug_mode: true,
-           //     use_multi_plane_protection: true,
-           //     process_planes: [0, 1, 2]
-           // }
+           override={
+               sparse: true,
+               use_roi_debug_mode: true,
+               use_multi_plane_protection: true,
+               process_planes: [0, 1, 2]
+           }
           ),
 
         pg.fan.tap('FrameFanout',
-                   io.frame_sink(gauss, gaussfile, tags=[gauss], digitize=false),
+                   io.frame_sink(gauss, gaussfile, tags=[gauss],
+                                 digitize=false, dense=apa_dense),
                    gauss),
 
         pg.fan.tap('FrameFanout',
-                   io.frame_sink(wiener, wienerfile, tags=[wiener], digitize=false),
+                   io.frame_sink(wiener, wienerfile, tags=[wiener],
+                                 digitize=false, dense=apa_dense),
                    wiener),
     ];
 
-    local tscr = pg.pnode({
-        type: "TorchScript",
-        name: apaname,
-        data: {
-            model:"unet-l23-cosmic500-e50.ts",
-            gpu: false,
-        },
-    }, nin=1, nout=1);
-    local tsrv = {
+    local ts = {
         type: "TorchService",
         name: apaname,
         data: {
             model:"unet-l23-cosmic500-e50.ts",
-            device: "gpucpu",
+            device: "cpu",
             concurrency: 1,     // 0 means no concurency (only one thread)
         },
     };
-    //local ts = {obj:tsrv, tn:wc.tn(tsrv)};
-    local ts = {obj:tscr, tn:tscr.name};
-    local dnntag = 'dnnsp%d'%apaid;
-    local dnnroi = pg.pnode({
+
+    local dnnroi_u = pg.pnode({
         type: "DNNROIFinding",
-        name: apaname,
+        name: apaname+"u",
         data: {
             anode: wc.tn(anode),
             intags: ['loose_lf%d'%apaid, 'mp2_roi%d'%apaid, 'mp3_roi%d'%apaid],
-            outtag: dnntag,
-            // Note, it is very much NOT idiomatic to tell one node about another!
-            // Here, we rely on the fact that a pnode uses wc.tn() to form its name.
-            torch_script: ts.tn
+            outtag: "dnnsp%du"%apaid,
+            cbeg: 0,
+            cend: 800,
+            torch_script: wc.tn(ts)
         }
-    }, nin=1, nout=1, uses=[ts.obj]);
-    local dnnsink = io.frame_sink(dnntag, dnnspfile, tags=[dnntag], digitize=false);
-    local dnn = [dnnroi, dnnsink];
+    }, nin=1, nout=1, uses=[ts]);
+    local dnnroi_v = pg.pnode({
+        type: "DNNROIFinding",
+        name: apaname+"v",
+        data: {
+            anode: wc.tn(anode),
+            intags: ['loose_lf%d'%apaid, 'mp2_roi%d'%apaid, 'mp3_roi%d'%apaid],
+            outtag: "dnnsp%dv"%apaid,
+            cbeg: 800,
+            cend: 1600,
+            torch_script: wc.tn(ts)
+        }
+    }, nin=1, nout=1, uses=[ts]);
+    local dnnroi_w = pg.pnode({
+        type: "ChannelSelector",
+        name: "dnnsp"+apaname+"w",
+        data: {
+            channels: std.range(1600, 2560-1),
+            tags: ["gauss%d"%apaid],
+            tag_rules: [{
+                frame: {".*":"DNNROIFinding"},
+                trace: {["gauss%d"%apaid]:"dnnsp%dw"%apaid},
+            }],
+        }
+    }, nin=1, nout=1);
 
-    local graph = pg.pipeline([depos, drifter, sim] + nfsp + dnn);
+    local dnnpipes = [dnnroi_u, dnnroi_v, dnnroi_w];
+    local dnnfanout = pg.pnode({
+        type: "FrameFanout",
+        name: "dnnsp-pipes-%d" % apaid,
+        data: {
+            multiplicity: 3
+        }
+    }, nin=1, nout=3);
+
+    local dnntag = "dnnsp%d" % apaid;
+
+    local dnnfanin = pg.pnode({
+        type: "FrameFanin",
+        name: "dnnsp-pipes-%d" % apaid,
+        data: {
+            multiplicity: 3,
+            tag_rules: [{
+                frame: {".*":dnntag}
+            } for plane in ["u", "v", "w"]]
+        },
+    }, nin=3, nout=1);
+
+    local dnnsink = io.frame_sink(dnntag, dnnspfile, tags=[dnntag],
+                                  digitize=false, dense=apa_dense);
+    local dnn = pg.intern(innodes=[dnnfanout],
+                          outnodes=[dnnfanin],
+                          centernodes=dnnpipes,
+                          edges=[pg.edge(dnnfanout, dnnpipes[ind], ind, 0) for ind in [0,1,2]] +
+                          [pg.edge(dnnpipes[ind], dnnfanin, 0, ind) for ind in [0,1,2]]);
+
+    local graph = pg.pipeline([depos, drifter, sim] + nfsp + [dnn, dnnsink]);
 
     tz.main(graph, 'TbbFlow', ['WireCellPytorch'])

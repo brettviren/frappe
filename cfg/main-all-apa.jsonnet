@@ -58,10 +58,12 @@ local defaults = {
     },
 };
 
-function(input, taps={}, options={})
+// set scale to -1 if depos are from larsoft and +1 if following WCT
+// convention.
+function(input, taps={}, scale=-1, options={})
     local opt = std.mergePatch(defaults, options);
 
-    local depos = tz.io.depo_source(input);
+    local depos = tz.io.depo_source(input, scale=scale);
     local wireobj = tz.wire_file(opt.wires);
     local anodes = tz.anodes(wireobj, opt.params.det.volumes);
 
@@ -81,7 +83,7 @@ function(input, taps={}, options={})
         local digi = tap == "raw" || tap == "orig";
         local sink = tz.io.frame_sink(name, taps[tap]%apaid, tags=[name], digitize=digi);
         if std.objectHas(taps, tap)
-        then [tz.io.frame_tap(name, sink, name, cap)]
+        then [pg.fan.tap('FrameFanout', sink, orig)]
         else [];
 
     local sim(anode) = [
@@ -93,7 +95,7 @@ function(input, taps={}, options={})
                opt.noisef,
                'adc',
                random)
-    ] + tap_out("orig", anode);
+    ] + tap_out(orig, anode, false),
 
     local adcpermv = tz.adcpermv(opt.params.adc);
 
@@ -101,7 +103,13 @@ function(input, taps={}, options={})
         tz.nf(anode, robjs_sigproc.fr, chndb_perfect(anode),
               opt.params.daq.nticks, opt.params.daq.tick)
     ] + tap_out("raw", anode) + [
-        tz.sp(anode, robjs_sigproc.fr, robjs_sigproc.er, opt.spfilt, adcpermv)
+        tz.sp(anode, robjs_sigproc.fr, robjs_sigproc.er, opt.spfilt, adcpermv,
+           override={
+               sparse: true,
+               use_roi_debug_mode: true,
+               use_multi_plane_protection: true,
+               process_planes: [0, 1, 2]
+           })
     ] + tap_out("gauss", anode) + tap_out("wiener", anode);
 
     local ts = {
