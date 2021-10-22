@@ -21,7 +21,8 @@ local det = dets.pdsp;
 
 // set scale to -1 if depos are from larsoft and +1 if following WCT
 // convention.
-function(depofile, apaid=0, scale=-1.0) 
+function(depofile, device='cpu', concurrency=1, apaids=[0,1,2,3,4,5], scale=-1.0) 
+    assert std.type(concurrency) == 'number';
 
     local depos = io.depo_source(depofile, scale=scale);
 
@@ -60,8 +61,8 @@ function(depofile, apaid=0, scale=-1.0)
             type: "TorchService",
             data: {
                 model: "unet-l23-cosmic500-e50.ts",
-                device: "cpu",
-                concurrency: 1,
+                device: device,
+                concurrency: concurrency,
             },
         };
 
@@ -71,9 +72,12 @@ function(depofile, apaid=0, scale=-1.0)
             pa.dnnsp(ts),
             pa.frame_tap(dnntag, filename("dnnsp")),
         ];
-        sim + nfsp + dnn;
+        pg.pipeline(sim + nfsp + dnn);
 
-    local pipe = one_anode(anodes[apaid]);
-    local graph = pg.pipeline([depos, drifter] + pipe);
+    local pipes = [one_anode(anodes[apaid]) for apaid in apaids];
+    local fan = pg.fan.fanout('DepoSetFanout', pipes, "main");
+    local graph = pg.pipeline([depos, drifter, fan]);
 
     tz.main(graph, 'TbbFlow', ['WireCellPytorch'])
+
+
