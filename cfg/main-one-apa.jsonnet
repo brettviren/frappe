@@ -58,6 +58,7 @@ function(depofile, apaid=0, scale=-1.0)
         // the DNN-ROI subgraph
         local ts = {
             type: "TorchService",
+            name: "dnnroi",
             data: {
                 model: "unet-l23-cosmic500-e50.ts",
                 device: "cpu",
