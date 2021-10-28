@@ -69,7 +69,11 @@ function(depofile, apaid=0, scale=-1.0)
         local dnntag = "dnnsp%d" % apaid;
         
         local dnn = [
-            pa.dnnsp(ts),
+            // WARNING: a non-unity output scale is a total bodge to
+            // make up for something wrong with the DNN-ROI model.  It
+            // was chosen by looking at a simulated cosmic muon event
+            // and comparing total dnnsp charge to gauss charge.
+            pa.dnnsp(ts, output_scale=1.2),
             pa.frame_tap(dnntag, filename("dnnsp")),
         ];
         sim + nfsp + dnn;
